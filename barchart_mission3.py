@@ -1,122 +1,108 @@
+import argparse
+import os
+import sys
 import pandas as pd
 from matplotlib import pyplot as plt
 from datetime import datetime, timedelta
 from collections import defaultdict, OrderedDict
 import numpy as np
 
-# Constants
-DEV = 'Development'
-DONE = 'Done'
-
-# Artifacts
-DC = 'D&C'
-HLTP = 'HLTP'
-LLTC = 'LLTC'
-LLTP = 'LLTP'
-
-# Features
-APPROACH = 'Approach Vref Entry'
-AIRPORT = 'Airport entries'
-ARRIVAL = 'Arrival entries'
-CONSTRAINTS = 'Constraints'
-DEPARTURE = 'Departure entries'
-
 # Plot setup
-plt.style.use('seaborn-whitegrid')
+plt.style.use('seaborn-v0_8-whitegrid')
 plt.rcParams["figure.autolayout"] = True
 
-# Path to Excel file
-path = r'C:\Users\223050503\Downloads\Mission 3.xlsx'
 
-# Variables
-done_dict = {}
-dev_dict = {}
-due_done_dict = {}
-due_date_dict = {}
-ontime_tasks_by_week = defaultdict(int)
-late_tasks_by_week = defaultdict(int)
+def get_user_inputs():
+    parser = argparse.ArgumentParser(description="Weekly delivery delta bar chart from Teams Excel export")
+    parser.add_argument('excelfile', help='Path to the Mission 3 Excel file')
+    args = parser.parse_args()
+    if not os.path.isfile(args.excelfile):
+        print(f'ERROR: {args.excelfile} not found')
+        sys.exit(1)
+    return args.excelfile
 
-# Load data from Excel
-df = pd.read_excel(path, index_col=0, header=0)
-df2 = df.dropna(subset=['Due Date'])
 
-# Extract data
-task_name = list(df2.iloc[:, 0])
-bucket_name = list(df2.iloc[:, 1])
-due_date = pd.to_datetime(list(df2.iloc[:, 8])).strftime('%m/%d/%y')
-current_date = pd.to_datetime(list(df2.iloc[:, 16])).strftime('%m/%d/%y')
+def main():
+    path = get_user_inputs()
 
-# Process tasks
-current_task = ''
-for j in range(len(task_name)):
-    found = False
-    for i in range(len(task_name)):
-        if DONE in bucket_name[i] and task_name[i] == task_name[j]:
-            found = True
-            break
-    if found and current_task != task_name[i]:
-        due_done_dict[task_name[i]] = current_date[i]
-        current_task = task_name[i]
+    # Load data
+    df = pd.read_excel(path, index_col=0, header=0)
+    df2 = df.dropna(subset=['Due Date'])
 
-# Map due dates
-for j in range(len(task_name)):
-    found = False
-    for i in range(len(task_name)):
-        if DONE in bucket_name[i] and task_name[i] == task_name[j] and task_name[i] in due_done_dict:
-            found = True
-            break
-    if found and current_task != task_name[i]:
-        due_date_dict[task_name[i]] = due_date[i]
-        current_task = task_name[i]
+    task_name = list(df2.iloc[:, 0])
+    bucket_name = list(df2.iloc[:, 1])
+    due_date = pd.to_datetime(list(df2.iloc[:, 8])).strftime('%m/%d/%y')
+    current_date = pd.to_datetime(list(df2.iloc[:, 16])).strftime('%m/%d/%y')
 
-# Update due_done_dict
-current_task = ''
-due_done_dict = {}
-for j in range(len(task_name)):
-    found = False
-    for i in range(len(task_name)):
-        if DONE in bucket_name[i] and task_name[i] == task_name[j] and task_name[i] in due_date_dict:
-            found = True
-            break
-    if found and current_task != task_name[i]:
-        due_done_dict[task_name[i]] = current_date[i]
-        current_task = task_name[i]
+    done = 'Done'
+    due_done_dict = {}
+    due_date_dict = {}
+    ontime_tasks_by_week = defaultdict(int)
+    late_tasks_by_week = defaultdict(int)
 
-# Calculate task timing
-for task in due_done_dict:
-    actual_date = datetime.strptime(due_done_dict[task], '%m/%d/%y')
-    expected_date = datetime.strptime(due_date_dict[task], '%m/%d/%y')
-    delta_time = (actual_date - expected_date).days
-    week_num = (actual_date - timedelta(days=actual_date.weekday())).strftime('%m/%d/%y')
+    # Pass 1: find completion dates for done tasks
+    current_task = ''
+    for j in range(len(task_name)):
+        for i in range(len(task_name)):
+            if done in bucket_name[i] and task_name[i] == task_name[j]:
+                if current_task != task_name[i]:
+                    due_done_dict[task_name[i]] = current_date[i]
+                    current_task = task_name[i]
+                break
 
-    if delta_time <= 3:
-        ontime_tasks_by_week[week_num] += 1
-    else:
-        late_tasks_by_week[week_num] += 1
+    # Pass 2: find due dates for those tasks
+    current_task = ''
+    for j in range(len(task_name)):
+        for i in range(len(task_name)):
+            if done in bucket_name[i] and task_name[i] == task_name[j] and task_name[i] in due_done_dict:
+                if current_task != task_name[i]:
+                    due_date_dict[task_name[i]] = due_date[i]
+                    current_task = task_name[i]
+                break
 
-# Sort and organize data
-ontime_tasks_by_week = dict(OrderedDict(sorted(ontime_tasks_by_week.items())))
-late_tasks_by_week = dict(OrderedDict(sorted(late_tasks_by_week.items())))
+    # Pass 3: rebuild due_done_dict filtered to tasks with due dates
+    current_task = ''
+    due_done_dict = {}
+    for j in range(len(task_name)):
+        for i in range(len(task_name)):
+            if done in bucket_name[i] and task_name[i] == task_name[j] and task_name[i] in due_date_dict:
+                if current_task != task_name[i]:
+                    due_done_dict[task_name[i]] = current_date[i]
+                    current_task = task_name[i]
+                break
 
-weeks = sorted(ontime_tasks_by_week.keys())
-ontime_items = list(ontime_tasks_by_week.values())
-late_items = list(late_tasks_by_week.values())
+    # Calculate on-time vs late by week
+    for task, done_date_str in due_done_dict.items():
+        done_dt = datetime.strptime(done_date_str, '%m/%d/%y')
+        due_dt = datetime.strptime(due_date_dict[task], '%m/%d/%y')
+        delta_days = (done_dt - due_dt).days
+        week = (done_dt - timedelta(days=done_dt.weekday())).strftime('%m/%d/%y')
 
-# Bar chart configuration
-bar_width = 0.35
-positions = np.arange(len(weeks))
-legend_labels = ['Ontime', 'Late']
+        if delta_days <= 3:
+            ontime_tasks_by_week[week] += 1
+        else:
+            late_tasks_by_week[week] += 1
 
-plt.bar(positions, ontime_items, bar_width, label='Ontime', color='green', edgecolor='black')
-plt.bar(positions + bar_width, late_items, bar_width, label='Late', color='red', edgecolor='black')
+    # Sort and plot
+    weeks = sorted(ontime_tasks_by_week.keys())
+    ontime_items = [ontime_tasks_by_week[w] for w in weeks]
+    late_items = [late_tasks_by_week[w] for w in weeks]
 
-plt.legend(loc='upper left')
-plt.title('Weekly Delivery Delta')
-plt.xlabel('Completion Week')
-plt.xticks(positions + bar_width / 2, weeks, rotation=90, fontsize='medium')
-plt.ylabel('Items Completed')
-plt.tight_layout()
+    pos = np.arange(len(weeks))
+    bar_width = 0.35
 
-# Save and show chart
-plt.savefig('overall_late_bar.png')
-plt.show()
+    plt.bar(pos, ontime_items, bar_width, label='Ontime', color='green', edgecolor='black')
+    plt.bar(pos + bar_width, late_items, bar_width, label='Late', color='red', edgecolor='black')
+
+    plt.legend(loc='upper left')
+    plt.title('Weekly Delivery Delta')
+    plt.xlabel('Completion Week')
+    plt.xticks(pos + bar_width / 2, weeks, rotation=90, fontsize='medium')
+    plt.ylabel('Items Completed')
+
+    plt.savefig('overall_late_bar.png')
+    plt.show()
+
+
+if __name__ == '__main__':
+    main()
